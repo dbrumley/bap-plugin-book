@@ -249,6 +249,7 @@ Hello world!
  - Compile with the =bapbuild= system
  - Plugins can be run in sequence
 
+
 * The Project Type
 
 BAP plugins take in a =Project.t=, which is defined in
@@ -573,13 +574,17 @@ At this point you would turn to the web and google for something like
 iterate over it with =iter=. You will find other handy functions like
 maps and folds over sequences.
 
-**** Working with Tags
+**** TODO Working with Instruction Tags
+This should be a code example with instruction tags as describe in the
+intro for this part.
+
 **** TODO Which memory region(s) are disassembled by default?
 The =disasm= field is the result of disassembling a memory region. We
 should specify which ones (I assume all marked executable)
 
 
-*** =memory=: Memory map and symbols
+
+*** TODO =memory=: Memory map and symbols
 
 The =memory= data structure is the BAP memory model of the executable
 image.  It includes tagged items like:
@@ -655,8 +660,22 @@ refers to ELF sections, and Image.section refers to sections as
 segments.  The document may be accurate, but reflects an internal
 understanding that is not made explicit.
 
+**** TODO What is the easiest way to get all memory regions?
+For example, if you want to find the ro segments.
+**** TODO ask IVG about match on Universal values
+It would seem somewhat natural to match on the value memmap, e.g.,
+something like:
+#+BEGIN_SRC ocaml
+      match Value.tag tag with
+      | Image.region -> do_something tag
+      | Image.section -> do_something tag
+      | Image.symbol -> do_something tag
+      | _ -> do_nothing()
+#+END_SRC
 
-*** =program=: Program
+What is the idiomatic way to do this?
+
+*** TODO =program=: Program
 
 #+BEGIN_SRC ocaml tangle:simpleprogram.ml
 open Core_kernel.Std
@@ -671,7 +690,7 @@ let () = Project.register_plugin main
 #+END_SRC
 
 
-*** =storage=: User storage for analysis
+*** TODO =storage=: User storage for analysis
 #+BEGIN_SRC ocaml tangle:simplestorage.ml
 open Core_kernel.Std
 open Bap.Std
@@ -685,8 +704,6 @@ let () = Project.register_plugin main
 #+END_SRC
 
 
-** TODO Why doesn't Project.t give all memory regions?
-For example, if you want to find the ro segments?
 
 
 
