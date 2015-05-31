@@ -86,37 +86,67 @@ types and all functions available.
 ** Why OCaml?
 
 We recognize OCaml is typically not someone's first programming
-language.  Why not use a more main stream language?
-
-Binary analysis is hard. High level programs have types, high-level
-control flow, and other programming features that provide abstractions
-to improve productivity. Compilation gets to take advantage of these
-abstractions.  Binary analysis, however, does not have these
-abstractions, and must constantly manage uncertainty.  For example, in
-source you typically know the control flow graph; in binary analysis
-we typically are coping with uncertainty about the graph.  As such,
-there are a million ways you can shoot yourself in the foot.  BAP's
-goal is to remove bullets due to poor programming practices, leaving
-only bullets due to more fundamental algorithm issues.
+language.  Why not use a more main stream language? 
 
 BAP is written in OCaml because it provides strong type safety
-guarantees, has a nice module system, and creates fast code. BAP is
+guarantees, has a nice module system, and creates fast code.  BAP is
 not for novice programmers. BAP is designed for rigorous program
 analysis, and built in a framework that tries to support reasonable
 safety and type guarantees.  As such, BAP uses what many call advanced
 programming features.
 
-As a related anecdote, at Carnegie Mellon University we have an
-undergraduate compilers course called 15-411.  I was a graduate
-student TA'ing the class for Ed Clarke and Peter Lee in the early
-2000's.  We allowed students to pick a language for their compiler: C,
-Java, or ML. There was a striking trend: those who picked ML generally
-received an A *regardless* of whether they knew ML before starting the
-class.  Those who picked Java generally got a B: their code worked but
-their algorithms were not fast, and the code generated was lackluster.
-Those who picked C generally did very poorly, often struggling to get
-the end-to-end compiler from parsing to code generation working
-reliably.
+OCaml is just the right tool for the job. Binary analysis is tough
+enough without having to worry about run time errors and weak type
+systems. There are a million ways you can shoot yourself in the foot.
+BAP's goal is to remove bullets due to poor programming practices,
+leaving only bullets due to more fundamental algorithm issues. Part of
+this is about scientific integrity: we are constantly performing
+research and publishing papers, and we're committed to making the BAP
+code available for those papers.  Bugs could color the results, thus
+it makes sense to try and limit bugs by using programming best
+practices.
+
+In addition, program analysis is generally easier in a functional
+language like OCaml. As an interesting anecdote, we've seen this play
+out even in the Carnegie Mellon University undergraduate compiler
+course.  I was a graduate student TA'ing the class for Ed Clarke
+(Turing Award winner) and Peter Lee (then CS Department Head, now VP
+at Microsoft)in the early 2000's.  We allowed students to pick a
+language for their compiler: C, Java, or ML. There was a striking
+trend: those who picked ML generally received an A *regardless* of
+whether they knew ML before starting the class.  Those who picked Java
+generally got a B: their code worked but their algorithms were not
+fast, and the code generated was lackluster.  Those who picked C
+generally did very poorly, often struggling to get the end-to-end
+compiler from parsing to code generation working reliably. Today CMU
+does not let students pick a language: they have to use ML.
+
+
+In my opinion, binary analysis is even tougher than normal
+source-based analysis.  High level programs have types, high-level
+control flow, and other programming features that provide abstractions
+to improve productivity. Compilation gets to take advantage of these
+abstractions.  Binary analysis, however, does not have these
+abstractions, and must constantly manage uncertainty.  For example, in
+source you typically know the control flow graph; in binary analysis
+we typically are coping with uncertainty about the graph. In source,
+you have types. In binary analysis we are trying to infer the type,
+and don't know whether the 32-bit register value is an integer,
+unsigned integer, pointer, or something else all together. This all
+puts an exclamation point on the need for using the best language for
+the job.
+
+
+Why not lower the entry barrier, e.g., by using a language like
+Python?  We would love to, but that is not our main goal right
+now. Our main goal is to try and get binary analysis right. We do
+provide some python bindings, and update them as we have
+time. However, we encourage people to use OCaml directly. 
+
+Don't be scared if you don't know OCaml.  OCaml doesn't let you be
+sloppy, so you may feel less productive, especially at first.  This is
+just you become a more experienced programmer and better computer
+scientist.
 
 
 ** Plugins
