@@ -1,4 +1,4 @@
-#+BABEL: :session *ocaml*
+#+BABEL:
 
 
 * Assignments
@@ -81,8 +81,6 @@ types and all functions available.
 
 
 * BAP Plugins: An Introduction
-
-
 ** Why OCaml?
 
 We recognize OCaml is typically not someone's first programming
@@ -149,15 +147,74 @@ just you become a more experienced programmer and better computer
 scientist.
 
 
-** Plugins
-The basic structure of a plugin is a function =Project.t ->
-Project.t=; that is, a function that takes in a BAP =Project.t= and
-returns a =Project.t=.  The plugin is _registered_ with the BAP
-system, which fills in the details of the project. 
+** Program to analyze
+
+We will be analyzing the following example, which is an (intentionally
+non-optimal) program that counts the frequency of letters in an input:
+
+#+BEGIN_SRC C :tangle exe.c
+#include <stdio.h>
+#include <ctype.h>
+
+int count(char *str)
+{
+  int lettercount[26];
+  int i, count, l;
+
+  for(i=0; i < 26; i++) lettercount[i] = 0;
+  i = 0;
+  count = 0;
+
+  while(str[i] != 0){
+   l = tolower(str[i]);
+   count++;
+   if(l >= (int)'a' && l <= (int)'z'){
+      lettercount[l-(int)'a'] ++;
+   }
+   i++;
+  }
+  for(i =0; i < 26; i++)
+    printf("%c: %d ", i+'a', lettercount[i]);
+  printf("\n");
+  return count;
+}
+
+int main(int argc, char *argv[])
+{
+  if(argc > 1) {
+    return count(argv[1]);
+  }  else {
+    printf("Usage: %s <string>\n", argv[0]);
+    printf("\tPrints a count for each letter in <string>\n");
+    printf("\tReturns total number of characters counted.\n");
+  }
+  return 0;
+}
+#+END_SRC
+
+#+RESULTS:
+| Usage:  | /var/folders/xj/kkd3v_ls0yjbyz5sj6spjskw0000gn/T/babel-88225amK/C-bin-88225ZqK | <string> |     |            |          |    |          |
+| Prints  | a                                                                              | count    | for | each       | letter   | in | <string> |
+| Returns | total                                                                          | number   | of  | characters | counted. |    |          |
+
+Compiled with:
+#+BEGIN_SRC sh :verbatim
+gcc -g  exe.c -o exe
+#+END_SRC
+
+#+RESULTS:
+
+
+** A Basic Plugin
+
+Plugins interact with BAP via the =Plugin= module.  All plugins must
+_register_ with the BAP system.  When you write a plugin, you specify
+a function that gets in a =Plugin.t=, which is filled in by BAP. 
 
 Let's start a very basic plugin that just prints "Hello World\n".
-Call the file =simple.ml=, and type in:
-#+BEGIN_SRC ocaml :tangle simple.ml
+Call the file =simplehello.ml=, and type in:
+
+#+BEGIN_SRC ocaml :tangle simplehello.ml
 open Core_kernel.Std
 open Bap.Std
     
@@ -165,8 +222,15 @@ let main p =
   Printf.printf "Hello world!\n";
   p
 
-let () = Project.register_plugin main
+let () = Project.register_pass' "hello" main
 #+END_SRC
+
+
+Plugins must be registered with the BAP system.  There are a few
+functions for registering passes. The one above registers a pass that
+returns unit (i.e., the pass will only be executed for side effects)
+that is called "hello" and uses the function =main= for the pass
+implementation.
 
 Plugins are compiled with the BAP =bapbuild= command, which takes care
 of linking against the BAP libraries. =bapbuild= works like
@@ -174,150 +238,62 @@ of linking against the BAP libraries. =bapbuild= works like
 
 If the above Save the file as =simple.ml=, then to compile it as a
 plugin you would run:
-#+BEGIN_SRC sh :results verbatim
-bapbuild simple.plugin
+#+BEGIN_SRC sh  :results verbatim
+bapbuild simplehello.plugin
 #+END_SRC
+
 
 Plugins are run via the =bap= utility using the =-l= option. Here we
 are running the =simple.plugin= (note we can omit the =.plugin=
 suffix) on the file =exe.arm=:
-#+BEGIN_SRC sh :results verbatim
-bap -lsimple exe.arm
+
+#+name: hello1
+#+BEGIN_SRC shell :exports results 
+bap -lsimplehello exe
 #+END_SRC
 
 
 Which should result in output that includes "Hello World!" at the end:
-#+RESULTS:
-#+begin_example
-.ARM.attributes
-.gnu_debuglink
-.gnu.prelink_undo
-.interp
-.shstrtab
-.note.ABI-tag
-.note.gnu.build-id
-.gnu.hash
-.dynsym
-.gnu.liblist
-.gnu.conflict
-.gnu.version
-.gnu.version_r
-.rel.dyn
-.rel.plt
-.init
-.plt
-.text
-.fini
-.rodata
-.ARM.extab
-.ARM.exidx
-.eh_frame
-.init_array
-.fini_array
-.jcr
-.dynamic
-.got
-.data
-.dynbss
-.bss
-.dynstr
-Hello world!
-#+end_example
+#+RESULTS: hello1
+: Hello world!
+
+In the rest of this document we will go examples of using BAP via the
+plugin system. We will see how plugins can access the disassembly, see
+symbol tables, view the BAP IR, and more.  We use the example ELF
+executable file =exe= as created above as our running example, and
+focus on static analysis of executable programs.  Even if you want to
+analyze other sources (e.g., traces), understanding how executables on
+disk are analyzed is a good place to start.
 
 
-
-Plugins can be run in sequence. As we will see, this is useful for
-passing the results of one plugin as input to another.  For example,
-to run the above plugin twice in sequence type:
-#+BEGIN_SRC sh :results verbatim
-bap -lsimple -lsimple exe
-#+END_SRC
-
-Which results in two sequential "Hello World!" outputs:
-#+RESULTS:
-#+begin_example
-.ARM.attributes
-.gnu_debuglink
-.gnu.prelink_undo
-.interp
-.shstrtab
-.note.ABI-tag
-.note.gnu.build-id
-.gnu.hash
-.dynsym
-.gnu.liblist
-.gnu.conflict
-.gnu.version
-.gnu.version_r
-.rel.dyn
-.rel.plt
-.init
-.plt
-.text
-.fini
-.rodata
-.ARM.extab
-.ARM.exidx
-.eh_frame
-.init_array
-.fini_array
-.jcr
-.dynamic
-.got
-.data
-.dynbss
-.bss
-.dynstr
-Hello world!
-Hello world!
-#+end_example
-
+We describe information using the following format:
+ 1) We first  give a high level concept
+ 2) We next provide an example plugin that exhibits the desired
+    functionality.
+ 3) We provide a more detailed breakdown of the plugin code. 
 
 
 *Main Points:*
- - Plugins are registered
- - Compile with the =bapbuild= system
- - Plugins can be run in sequence
+ - Plugins interact with BAP via the =Plugin= module.
+ - Compile with the =bapbuild= system.
+ - Plugins are run with the =-l= command line option.
 
 
-* The Project Type
+* =arch=: Interacting with architecture information
 
-BAP plugins take in a =Project.t=, which is defined in
-=bap.mli=. Currently the type signature is:
+Binary analysis usually starts with understanding the basic
+architecture format. For example, suppose you want to specialize to
+ARM where your analysis assumes return values are in =r0=.  Then as
+part of plugin initialization it would be good to check the
+architecture matches ARM.  (Note that BAP provides basic inference for
+where arguments are returns are located, thus this example is somewhat
+moot. However, it illustrates the point.)
 
-#+BEGIN_SRC ocaml
-    type t = {
-      arch    : arch;               (** architecture  *)
-      disasm  : disasm;             (** disassembly of a program *)
-      memory  : value memmap;       (** annotations  *)
-      storage : dict;               (** arbitrary data storage *)
-      program : program term;       (** Program lifter to BAP IR  *)
-
-      (** Deprecated fields, the will be removed in a next release. *)
-      symbols : string table;       (** @deprecated symbol table  *)
-      base    : mem;                (** @deprecated base memory  *)
-    }
-#+END_SRC
-
-Let's go through each field and see how to use them.  We'll cover them
-in a slightly different order than listed above.
-
-***  =arch=: Architecture
-The =arch= field contains information about the architecture of the
-program being analyzed. We currently support all llvm-3.4
-architectures.  These include x86, x86-64, ARM (v4-v7, and thumb
-modes), ppc, spark, and others. The full set is listed in the =Arch=
-module in =bap.mli=.  (We will reiterate many times you should get use
-to browsing the =bap.mli= file, which contains complete information on
-everything that BAP provides.)  
-
-The =arch= field is useful if you want to write an
-architecture-specific analysis. For example, suppose you want to
-specialize to ARM where your analysis assumes return values are in
-=r0=.  Then as part of plugin initialization it would be good to check
-the architecture matches ARM.  (Note that BAP provides basic inference
-for where arguments are returns are located, thus this example is
-somewhat moot. However, it illustrates the point.)
+BAP currently support all llvm-3.4 architectures, including x86,
+x86-64, ARM (v4-v7, and thumb modes), ppc, spark, and more. The full
+set is listed in the =Arch= module in =bap.mli=.  (We will reiterate
+many times you should get use to browsing the =bap.mli= file, which
+contains complete information on everything that BAP provides.)
 
 Here is a simple example that checks the architecture, and prints out
 a message based on the architecture type:
@@ -326,92 +302,46 @@ a message based on the architecture type:
 (* simplearch.ml *)
 open Core_kernel.Std
 open Bap.Std
-open Project
 
-let main p = 
-  let s = match p.arch with
-    | #arm  -> "I found an ARM"
-    | #x86  -> "I found x86"
+let main p =
+  let s = match Project.arch p with
+    | #Arch.arm  -> "I found an ARM"
+    | #Arch.x86  -> "I found x86"
     | _ -> "No match!"
   in
-  Printf.printf "%s\n" s;
-  p
+  Printf.printf "%s\n" s
 
-let () = Project.register_plugin main
+let () = Project.register_pass' "simplearch" main
 #+END_SRC
 
 
 We compile this:
 #+BEGIN_SRC sh
-bapbuild simplearch.plugin
+bapbuild simplearch.plugin 
 #+END_SRC
+
 
 And run on an ARM executable:
 #+BEGIN_SRC sh :results verbatim
-bap -lsimplearch exe.arm
+bap -lsimplearch exe
 #+END_SRC
 
 #+RESULTS:
-#+begin_example
-.ARM.attributes
-.gnu_debuglink
-.gnu.prelink_undo
-.interp
-.shstrtab
-.note.ABI-tag
-.note.gnu.build-id
-.gnu.hash
-.dynsym
-.gnu.liblist
-.gnu.conflict
-.gnu.version
-.gnu.version_r
-.rel.dyn
-.rel.plt
-.init
-.plt
-.text
-.fini
-.rodata
-.ARM.extab
-.ARM.exidx
-.eh_frame
-.init_array
-.fini_array
-.jcr
-.dynamic
-.got
-.data
-.dynbss
-.bss
-.dynstr
-I found an ARM
-#+end_example
+: I found x86
 
-A couple of notes.  First, we've =open='ed =Project=.  This is because
-the fields of =p= are specified in that module.  In general it's bad
-practice to =open= more than needed.  Alternatively (and potentially
-of better style) we could have omitted the open and replaced:
+This program highlights pattern matching on _polymorphic variant_
+types:
 #+BEGIN_SRC ocaml
-let s = match p.arch with ...
-#+END_SRC
-
-with
-#+BEGIN_SRC ocaml
-let s = match Project.(p.arch) with ...
-#+END_SRC
-
-Second, notice the pattern match on _polymorphic variant_ types, as
-distinguished by the =#= (hash) sign in the match:
-#+BEGIN_SRC ocaml
-match p.arch with
-    | #arm  -> "I found an ARM" 
-    | #x86  -> "I found x86"    
+  let s = match Project.arch p with
+    | #Arch.arm  -> "I found an ARM"
+    | #Arch.x86  -> "I found x86"
     | _ -> "No match!"
+  in ...
 #+END_SRC
 
-Let's take =arm=.  If you look at =bap.mli=, you will notice that the
-type of =arm= looks something like:
+First, notice the =#Arch.arm= indicates a pattern match on something
+in the =Arch= module.  If you look at =Arch= in =bap.mli=, you will
+notice that the type of =arm= looks something like:
 #+BEGIN_SRC ocaml
     type arm = [
       | `arm
@@ -426,35 +356,32 @@ type of =arm= looks something like:
     ] with bin_io, compare, enumerate, sexp
 #+END_SRC
 
-This says that type =arm= is composed of several polymorphic variant
-types, one for each type of arm instruction set we may run into.  When
-you match on =#arm= (hash arm), you match on all variants.   You could
-match a particular architectures by listing them specifically, e.g., 
-#+BEGIN_SRC ocaml
-  let s = match Project.(p.arch) with
-    | `armv4  -> "armv4"      
-    | `armv5  -> "armv5"
-    | `armv6  -> "armv6"
-    | `armv7  -> "armv7"      
-    | #x86  -> "I found x86"
-    | _ -> "No match!"
-  in ...
-#+END_SRC
+First, look at the variant-looking type declaration =`arm=, =`armeb=,
+=`armv4=, etc. Notice the backtick.  The backtick =`= indicates that
+each item is a _polymorphic variant_ type, which are discussed in
+[[https://realworldocaml.org/v1/en/html/variants.html][Chapter 6 of RWO]].  Here we are defining a class of variants called
+=arm=.  The =match= statement matches every variant in the class, and
+is shorthand for:
 
-If you are unfamiliar with polymorphic variants, you should read up in
-the [[http://caml.inria.fr/pub/docs/manual-ocaml-400/manual006.html][OCaml manual]] and in [[https://realworldocaml.org/v1/en/html/variants.html][Real World OCaml Chapter 6]].  In particular,
-learn about matching, as polymorphic variants are used throughout BAP.
+#+BEGIN_SRC ocaml
+  let s = match Project.arch p with
+    | `Arch.armv4  -> "armv4"      
+    | `Arch.armv5  -> "armv5"
+    | ... 
+#+END_SRC
 
 **** Anti-example 1
 
 What's wrong with the following?
 #+BEGIN_SRC ocaml
-  let s = match Project.(p.arch) with
+  let s = match Project.arch p with
     | arm  -> "arm"      
     | x86  -> "x86"
     | _ -> "No match!"
   in ...
 #+END_SRC
+
+
 
 Think about it for a second.
 
@@ -464,18 +391,23 @@ a bug: none of the other cases will ever be true.  Contrast with the
 correct way earlier where we matched against =#arm=.
 
 
+**** TODO =Arch= and =Regular=
+Extend example to include Regular printing =to_string=
 
-**** TODO Why not to_string for Arch?
 
+**** DONE Why not to_string for Arch?
+Everything that implements Regular includes Printable, and everything
+(including regular and more) that include Printable have to_string.
 
 *** =disasm=: Disassembly
 
-=Project.t= also contains the current disassembly of the program
-called =disasm=.  You can iterate over instructions (e.g., using
-=Disasm.insns=), get an instruction at an address (e.g., using
-=Disasm.insn_at_addr=), work with instruction tags (e.g., using
-=Disasm.insn=), and many other things. See the =Disasm= module inside
-=bap.mli=.
+BAP =disasm= module provides access to disassembly and lifters.  BAP
+calls LLVM on the back end for disassembly, thus supports
+out-of-the-box all architectures supported by LLVM.  You can iterate
+over instructions (e.g., using =Disasm.insns=), get an instruction at
+an address (e.g., using =Disasm.insn_at_addr=), work with instruction
+tags (e.g., using =Disasm.insn=), and many other things. See the
+=Disasm= module inside =bap.mli=.
 
 Let's write two programs: one to print out all disassembled
 instructions with their addresses, and one to work with tags. 
@@ -486,32 +418,23 @@ In this project we print out the instructions in =Project.disasm=.
 Let's first look at the code, then break down how it works.
 
 #+BEGIN_SRC ocaml :tangle simpledisasm.ml
+(* simplediasm.ml *)
 open Core_kernel.Std
 open Bap.Std
 
 let main p = 
-  let open Project in
-  let module Target = (val target_of_arch p.arch) in 
-  Seq.iter (Disasm.insns p.disasm) ~f:(fun (mem,insn) -> 
+  let module Target = (val target_of_arch (Project.arch p)) in 
+  Seq.iter (Disasm.insns (Project.disasm p)) ~f:(fun (mem,insn) -> 
       Printf.printf "%s %s\n"
         (Bitvector.to_string (Target.CPU.addr_of_pc mem)) (Insn.asm insn)
-  );
-  p
+  )
 
-let () = Project.register_plugin main
+let () = Project.register_pass' "disasm" main
 #+END_SRC
 
 Let's walk through the code.  The overall skeleton is the same as our
 very first simple project where we register a function =main= as our
-plugin start. For simplicity, we've next opened up the local module
-=Project=.  This makes it so we have access to =p='s fields.
-
-The plugin iterates over the sequence of disassembled instructions in
-=disasm= from =Project.t=. For each instruction, we print it out using
-the architecture-specific function. We get the architecture-specific
-function by consulting the =arch= in =Project.t=. Let's go into more
-depth for each of these concepts.
-
+plugin start. 
 
 First, BAP works with a variety of architectures, and therefore
 plugins must consider each possible supported architecture.  In the
@@ -523,26 +446,42 @@ information to figure out how to print and with the proper data type.
 The above plugin gets the architecture-specific function definitions
 as such:
 #+BEGIN_SRC ocaml
-  let module Target = (val target_of_arch p.arch) in ...
+  let module Target = (val target_of_arch (Project.arch p)) in 
 #+END_SRC
 
-And then iterate over all instructions, printing them out for the
-architecture: 
+Next, the plugin iterates and prints out the sequence of disassembled
+instructions:
 #+BEGIN_SRC ocaml
+  Seq.iter (Disasm.insns (Project.disasm p)) ~f:(fun (mem,insn) -> 
+      Printf.printf "%s %s\n"
+        (Bitvector.to_string (Target.CPU.addr_of_pc mem)) (Insn.asm insn)
+  )
+
   Seq.iter (Disasm.insns p.disasm) ~f:(fun (mem,insn) -> 
       Printf.printf "%s %s\n"
         (Bitvector.to_string (Target.CPU.addr_of_pc mem)) (Insn.asm insn)
   );
 #+END_SRC
 
-The above first gets a list of instructions via:
+Let's go over this more slowly.
+
+First, we retrieve a sequence of instructions via:
 #+BEGIN_SRC ocaml
-Disasm.insns p.disasm
+Disasm.insns (Project.disasm p)
 #+END_SRC
 
-And then iterates over the sequence. Each sequence is a =(mem,insn)=
-pair, of which we a) get the instruction address and b) get the
-assembly.
+Next, we use =Seq.iter= to iterate over a sequence of =(mem,insn)=
+pairs, where =insn= is the instruction and =mem= is the memory where
+it appears. Each sequence item pair is passed to =f= to do the actual
+printing. Note that we use the target-specific printing function
+=Target.CPU.addr_of_pc=.
+
+**** TODO Why do we need this target for pc, but not insns themselves?
+It seems odd to me that we don't need Target for the insn, but do need
+it to print the address. It seems we should have a =Insn.addr= which
+returns an address or something.  I'm sure there is a good reason, but
+i couldn't explain it here which is why I have this todo.
+
 
 **** Finding what you need in BAP
 
@@ -655,17 +594,18 @@ let main p =
                    (Sexp.to_string (Image.Sec.sexp_of_t r))
     | None -> ()
   in
-  Memmap.iter (p.memory) ~f:(fun tag ->
-      match Value.tagname tag with
-      | "region" -> print_region tag
-      | "section" -> print_section tag
-      | "symbol" -> print_symbol tag
-      | _ -> Printf.printf "Unknown tag: %s\n" (Value.tagname tag)
-    );
+  Memmap.iteri (p.memory) ~f:(fun (mem,value) ->
+      match Value.get Image.region value with
+      | Some ".rodata" ->  Memory.hexdump mem
+      | None -> ()
+  );
   p
 
 let () = Project.register_plugin main
 #+END_SRC
+
+**** TODO Add memmap iteri
+
 
 **** Segment vs. Section
 
@@ -704,6 +644,16 @@ something like:
 #+END_SRC
 
 What is the idiomatic way to do this?
+
+print_section value = 
+  ( match Value.get section value  with
+  | Some x -> actuall print |
+  | None ->  ()             |
+  ); value                         |r
+
+Memmap.iter (fun value ->
+  print_section tag  |> print_segment tag |>
+)
 
 *** TODO =program=: Program
 
