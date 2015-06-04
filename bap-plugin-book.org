@@ -359,9 +359,11 @@ notice that the type of =arm= looks something like:
 First, look at the variant-looking type declaration =`arm=, =`armeb=,
 =`armv4=, etc. Notice the backtick.  The backtick =`= indicates that
 each item is a _polymorphic variant_ type, which are discussed in
-[[https://realworldocaml.org/v1/en/html/variants.html][Chapter 6 of RWO]].  Here we are defining a class of variants called
-=arm=.  The =match= statement matches every variant in the class, and
-is shorthand for:
+[[https://realworldocaml.org/v1/en/html/variants.html][Chapter 6 of RWO]].  
+
+Here we are defining a pattern of polymorphic variants called =arm=.
+The =match= statement matches every variant in the pattern, and is
+shorthand for:
 
 #+BEGIN_SRC ocaml
   let s = match Project.arch p with
@@ -370,7 +372,7 @@ is shorthand for:
     | ... 
 #+END_SRC
 
-**** Anti-example 1
+** Anti-example 1
 
 What's wrong with the following?
 #+BEGIN_SRC ocaml
@@ -382,24 +384,33 @@ What's wrong with the following?
 #+END_SRC
 
 
-
 Think about it for a second.
 
 The important thing to notice is the match is against =arm=, not
 =#arm=.  =arm= is a variable name, and will match everything. This is
 a bug: none of the other cases will ever be true.  Contrast with the
-correct way earlier where we matched against =#arm=.
+correct way earlier where we matched against the pattern =#arm=.
+
+** The High Bits
+ - A project has information about the architecture, which can be used
+   to parameterize a plugin specific to a particular architecture.
+ - BAP uses polymorphic variants, and matching against classes is
+   useful.
+ - Be careful with matching. OCaml types help prevent mistakes, but
+   don't catch them all. RWO has an entire block at the end of Chapter
+   6 talking about the pros and cons of polymorphic variants.
 
 
-**** TODO =Arch= and =Regular=
+** TODO =Arch= and =Regular=
 Extend example to include Regular printing =to_string=
 
 
-**** DONE Why not to_string for Arch?
+** DONE Why not to_string for Arch?
 Everything that implements Regular includes Printable, and everything
 (including regular and more) that include Printable have to_string.
 
-*** =disasm=: Disassembly
+
+* =disasm=: Disassembly
 
 BAP =disasm= module provides access to disassembly and lifters.  BAP
 calls LLVM on the back end for disassembly, thus supports
@@ -412,10 +423,66 @@ tags (e.g., using =Disasm.insn=), and many other things. See the
 Let's write two programs: one to print out all disassembled
 instructions with their addresses, and one to work with tags. 
 
-**** Disassembled instructions
+** Disassembled instructions
 
 In this project we print out the instructions in =Project.disasm=.
 Let's first look at the code, then break down how it works.
+
+
+#+BEGIN_SRC ocaml :tangle simpledisasm.ml
+  (* simplediasm.ml *)
+  open Core_kernel.Std
+  open Bap.Std
+       
+  let main p = 
+    Seq.iter (Disasm.insns (Project.disasm p)) ~f:(fun (mem,insn) -> 
+        Printf.printf "%a %s\n"
+          Addr.pp (Memory.min_addr mem) (Insn.asm insn)
+      )
+
+  let () = Project.register_pass' "disasm" main
+#+END_SRC
+
+Let's walk through the code.  The overall skeleton is the same as our
+very first simple project where we register a function =main= as our
+plugin start.
+
+First, we retrieve a sequence of instructions via:
+#+BEGIN_SRC ocaml
+Disasm.insns (Project.disasm p)
+#+END_SRC
+
+Next, we use =Seq.iter= to iterate over a sequence of =(mem,insn)=
+pairs, where =insn= is the instruction and =mem= is the memory where
+it appears.
+
+#+BEGIN_SRC ocaml
+    Seq.iter (Disasm.insns (Project.disasm p)) ~f:(fun (mem,insn) -> 
+     ... )
+#+END_SRC
+
+
+The =insn= is self explanatory: it's the decoded instruction.  You can
+view the assembly with =Insn.asm insn=.
+
+The =mem= is a memory region for the particular instruction.
+Therefore, the =min_addr= is the start of the instruction, which is
+what we print out:
+#+BEGIN_SRC ocaml
+Printf.printf "%a %s\n"
+   Addr.pp (Memory.min_addr mem) (Insn.asm insn)
+#+END_SRC
+
+If we wanted to find the length of the instruction we would use
+=Memory.length mem=,  and you could hexdump the instruction with
+=Memory.hexdump=. 
+
+
+** Anti-example:
+
+Here is another example of something that seems to print out the
+address.
+
 
 #+BEGIN_SRC ocaml :tangle simpledisasm.ml
 (* simplediasm.ml *)
@@ -432,58 +499,17 @@ let main p =
 let () = Project.register_pass' "disasm" main
 #+END_SRC
 
-Let's walk through the code.  The overall skeleton is the same as our
-very first simple project where we register a function =main= as our
-plugin start. 
-
-First, BAP works with a variety of architectures, and therefore
-plugins must consider each possible supported architecture.  In the
-above code, we see one architecture-specific detail is the address.
-For example, the address for x86 is 32-bits, while for x86-64 it's
-64-bits. Therefore, a robust plugin will use the architecture
-information to figure out how to print and with the proper data type.
-
-The above plugin gets the architecture-specific function definitions
-as such:
-#+BEGIN_SRC ocaml
-  let module Target = (val target_of_arch (Project.arch p)) in 
-#+END_SRC
-
-Next, the plugin iterates and prints out the sequence of disassembled
-instructions:
-#+BEGIN_SRC ocaml
-  Seq.iter (Disasm.insns (Project.disasm p)) ~f:(fun (mem,insn) -> 
-      Printf.printf "%s %s\n"
-        (Bitvector.to_string (Target.CPU.addr_of_pc mem)) (Insn.asm insn)
-  )
-
-  Seq.iter (Disasm.insns p.disasm) ~f:(fun (mem,insn) -> 
-      Printf.printf "%s %s\n"
-        (Bitvector.to_string (Target.CPU.addr_of_pc mem)) (Insn.asm insn)
-  );
-#+END_SRC
-
-Let's go over this more slowly.
-
-First, we retrieve a sequence of instructions via:
-#+BEGIN_SRC ocaml
-Disasm.insns (Project.disasm p)
-#+END_SRC
-
-Next, we use =Seq.iter= to iterate over a sequence of =(mem,insn)=
-pairs, where =insn= is the instruction and =mem= is the memory where
-it appears. Each sequence item pair is passed to =f= to do the actual
-printing. Note that we use the target-specific printing function
-=Target.CPU.addr_of_pc=.
-
-**** TODO Why do we need this target for pc, but not insns themselves?
-It seems odd to me that we don't need Target for the insn, but do need
-it to print the address. It seems we should have a =Insn.addr= which
-returns an address or something.  I'm sure there is a good reason, but
-i couldn't explain it here which is why I have this todo.
+This is very similar to above, except we're passing =mem= to
+=Target.CPU.addr_of_pc=.  However, the PC may not be pointing to the
+value of the instruction executed. For example, on ARM when CPU
+executes instruction at address `A` the value of PC register would
+be`A+8`, since at some point of time it had pipeline of two
+instructions: exec-load-fetch. In x86 it will point to the byte next
+to the instruction, i.e. `PC = A + sizeof(insn)`, on MIPS it is also
+points somewhere, ahead.
 
 
-**** Finding what you need in BAP
+** Finding what you need in BAP
 
 There is an important meta-point in the above description. As part of
 this tutorial was also want to help you figure out *how* to find what
@@ -517,8 +543,9 @@ comparison, consider a non-lazy data structure like a =List=, where
 the entire data structure must be available in memory before it can be
 used.
 
-If you've never seen =seq= before, you would use emacs to jump to the
-definition to find (currently):
+If you've never seen =seq= before, you would use emacs (e.g., use =C-c
+C-t= and have merlin take you to it)) to jump to the signature for
+=Seq=:
 #+BEGIN_SRC ocaml
   (** Lazy sequence  *)
   module Seq : sig
@@ -536,20 +563,23 @@ So our =Seq.t= is defined in terms of =Sequence.t=.  At this point you
 probably can't jump to the definition of =Sequent.t= because it's in
 Jane Street =Core_kernel=.  It's also worth pointing out the =include
 module= statement: it will bring in functions available from the
-included module. 
+included module.
 
 At this point you would turn to the web and google for something like
 "sequence jane street core_kernel".  This is where you find you can
 iterate over it with =iter=. You will find other handy functions like
 maps and folds over sequences.
 
-**** TODO Working with Instruction Tags
+** Summary
+ - =Disasm= is where you want to look for disassembly information
+ - All executable code (segments/sections) are disassembled and
+   available via project.
+ - The PC isn't the same as the address of the =insn= code. 
+
+
+** TODO Working with Instruction Tags
 This should be a code example with instruction tags as describe in the
 intro for this part.
-
-**** TODO Which memory region(s) are disassembled by default?
-The =disasm= field is the result of disassembling a memory region. We
-should specify which ones (I assume all marked executable)
 
 
 
