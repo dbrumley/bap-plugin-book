@@ -1,158 +1,840 @@
+#+TITLE: BAP Manual
+#+AUTHOR: BAP Team
+
 #+BABEL:
 
 
-* Assignments
-** Assignment: Read Real World OCaml Language Concepts
- The first section of Real World OCaml (RWO) is called Language
- Concepts, and includes a thorough introduction to OCaml and modern
- OCaml idioms. 
-** Assignment: Set up BAP
 
- Install BAP from opam.  Make sure you pin against git.  See the BAP
- wiki for instructions on how to do this.
+* BAP: An Overview
 
-** Assignment: Set up emacs
-
-If your first thought is "I'll use vi/vim", you are missing a
-fundamental opportunity to become a competent programmer.  A competent
-programmer knows many tools.  In particular, vi/vim and emacs are the
-two most popular editors.  If you don't know emacs, you don't know
-half of what you should on a very basic topic.
-
-Consult the BAP wiki for setting up emacs. In particular, you should
-set up:
-  - Emacs
-  - Tuareg mode using the opam version files (not melpa)
-  - Merlin mode using the opam version (not melpa)
-
-If you like you can also consult [[https://github.com/dbrumley/dotfiles/tree/master/emacs.d][David's Document Emacs]]
-configuration as an additional reference.
-
-You will also want to consult documentation for using Tuareg and
-Merlin. On reference is the [[http://www.typerex.org/files/cheatsheets/tuareg-mode.pdf][OCaml Tuareg Cheat Sheet]]. The following
-are essential keystrokes:
-  - =C-c C-l= to jump to the =mli= file for a type.
-  - =C-c C-t= to show the type of an expression.
-
-** Assignment: Find and read =bap.mli=
-Recall in OCaml an =mli= file is an interface file. The file =bap.mli=
-contains a complete description of the BAP interface, including data
-types and all functions available. 
-
-** Assignment: Write Basic Plugin
- Write a BAP plugin that prints "Hello World!\n".  
-
- The purpose of this plugin is: 
-   1. Ensure your environment is set up properly
-   2. Check that you know how to write the most basic BAP code.
-   3. Check that you can compile code.
-
-** Assignment: Matching Architecture
-
- You are given two files: an x86 file called =exe.x86= and an ARM file
- called =exe.arm=. Your goal is to write a plugin that when given an
- ARM file prints out "I found an ARM", when given an x86 file prints
- out "I found an x86", and when given any other type of file outputs
- "No match".
-
- The purpose of this plugin is:
-   1. Look at the basic =Project.t= type
-   2. Ensure you know how to pattern match against polymorphic
-      variants. 
-
-** Assignment: Print out the disassembly of a file
-
- You are given a single =exe.arm= file. Your goal is to write a plugin
- that prints out for each instruction a) it's address in hex, and b)
- the assembly string.
-
- The purpose of this plugin is:
-   1. Look at the =Project.t= =disasm= field.
-   2. Gain experience working with =Disasm= module.
-
-** Assignment: Write out all .rodata sections in an ELF file
- 
- You are given an ELF file called =exe.arm=.  Your goal is to write a
- plugin that prints out all ELF sections marked as =.rodata= in hex. 
-
- The purpose of this plugin is:
-   1. Understand how to work with the =memory= component of a project.
-   2. Gain experience using BAP's Universal Values.
+BAP is the CMU Binary Analysis Platform.  BAP provides:
+  - A plugin system for writing program analysis for binary
+    code. Plugins can be co-dependent, and can take advantage of the
+    underlying binary to do the common work of parsing file images,
+    disassembling, and identifying functions.
+  - A plugin system for specifying new back-ends for parsing
+    executable file formats and instructions.  We use LLVM by default,
+    which gives you out-of-the-box support for disassembling over a
+    dozen instruction formats and parsing common executable
+    containers such as ELF and mach-o. 
+  - An unopinioned layered library. A common problem in binary
+    analysis is managing assumptions: at each level of analysis from
+    the raw bits to high level procedural abstractions we may either
+    want a reasonable default (e.g., code resulting from a normal
+    compiler), or to define our own analysis if the assumptions don't
+    hold (e.g., malware analysis). BAP solves this problem by layering
+    modules.  BAP modules provide abstractions that do not make
+    decisions for the user, and tend to provide only one piece of
+    functionality.  By layering modules, BAP provides high-level
+    abstractions for "normal" code, while still allowing a user to
+    swap-in different analysis if our assumptions do not fit.  Make no
+    mistake: we strive to limit assumptions overall, but we also want
+    to be reasonable.
+  - A Binary Instruction Language (BIL) for specifying the
+    side-effects of instructions, and a SSA intermediate language for
+    writing program analysis called the Binary Intermediate Language
+    (BIR).  BIL is intended to make writing lifters easier, while BIR
+    makes writing program analysis easier.
+  - A set of executables for displaying recovered information from a
+    binary, such as sections, symbols, BIL, and the BIR.
+  - BAP is written in OCaml, a strongly typed functional language that
+    results in fast analysis code. Our experience at CMU is that
+    program analysis written in functional languages tends to have
+    fewer bugs, and be more robust.  BAP does provide limited and
+    unsupported functionality for interfacing with other languages
+    like Python, and adding more functionality is always an
+    appreciated contribution.
 
 
-* BAP Plugins: An Introduction
+David Brumley's research group at CMU develops BAP, and uses it for
+program analysis research.   BAP is also used in industry and government for
+writing analysis ranging from bug-finding to symbolic execution.  
+BAP is distributed under an MIT license, does not depend on
+GPL-licensed components, therefore should be industry-friendly.
+
+As a small favor, if you find BAP useful, please drop us a line; it
+helps us secure funding, which in turn helps us provide more great
+functionality to the community as a whole.  Unfortunately do to how
+the world works, we cannot provide individual support without funding.
+
+There are other great binary analysis toolkits, and BAP is but one
+piece of the puzzle.  The key features of BAP are: a) it's designed
+for program analysis, and b) BIL and BIR are well-tested, thus the
+semantics are generally trustworthy. We believe we have some of the
+best tested semantics out there.  BAP in principle is similar to other
+great tools like BitBlaze in the focus on program analysis.  BAP is
+conceptually different from tools like radare2 in that we are less
+interested in analyzing the semantics of assembly and scripting, and
+tools like IDA that are interactive.  However, through the BAP plugin
+system you can interface with these tools, and BAP out-of-the-box
+provides several convenient features for working with IDA (e.g., for
+function discovery and for outputting IDA-python scripts).
+
+In the rest of this manual, we provide a high-level overview of BAP,
+and then take a deep-dive into writing BAP plugins.  Since it's a
+research prototype, the most up to date information is always in the
+source-generated documentation. Serious BAP users should read
+~bap.mli~.
+
+
+
+** BIL, BIR, Syntax, and Semantics
+
+Program analysis researchers carefully distinguish between syntax and
+semantics.  Semantics tells us the meaning of the program.  Syntax is
+a matter of the logical or grammatical form of sentences, rather than
+what they refer to or mean. In BAP, we care about both: we want to
+provide useful syntax constructs that allow you, the program analysis
+designer, to reason about the semantics of code.
+
+For example, consider the syntax of the following C program fragment
+for the Euclidean algorithm:
+#+BEGIN_SRC C :tangle euclidean.c :main no
+// euclidean.c
+  int euclidean(int a, int b)
+  {
+    while(b != 0)
+    if(a > b){ 
+      a = a - b;
+    } 
+    else {
+      b = b -a;
+    }
+    return a;
+  }
+#+END_SRC
+
+The syntax of the above includes C identifiers like ~int~, ~while~,
+and so on.  One of the first steps in compilation would be to create
+an _abstract syntax tree_ (AST) for the program. ASTs represents the
+program in a structure much more convenient for downstream analysis
+than plain text.  The AST of the above program may look something like
+(thanks to [[https://en.wikipedia.org/wiki/Abstract_syntax_tree][Wikipedia]]):
+
+#+attr_latex: width=0.3\textwidth
+#+label: fig:ast
+#+caption: Abstract Syntax Tree Example
+[[file:media/Abstract_syntax_tree_for_Euclidean_algorithm.png]]
+
+ASTs are useful: we can traverse the AST to find conditionals, loops,
+variables of a particular type, and so on.  
+
+In binary code, a typical syntactic representation of a program is
+assembly for an architecture, e.g., x86 assembly, ARM assembly, and so
+on.  Assembly for your favorite platform can be produced by ~gcc~ as
+follows:
+#+NAME assembly-example
+#+BEGIN_SRC sh :tangle no :exports both :results output replace
+gcc -S euclidean.c -o -
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+	.section	__TEXT,__text,regular,pure_instructions
+	.globl	_euclidean
+	.align	4, 0x90
+_euclidean:                             ## @euclidean
+	.cfi_startproc
+## BB#0:
+	pushq	%rbp
+Ltmp2:
+	.cfi_def_cfa_offset 16
+Ltmp3:
+	.cfi_offset %rbp, -16
+	movq	%rsp, %rbp
+Ltmp4:
+	.cfi_def_cfa_register %rbp
+	movl	%edi, -4(%rbp)
+	movl	%esi, -8(%rbp)
+LBB0_1:                                 ## =>This Inner Loop Header: Depth=1
+	cmpl	$0, -8(%rbp)
+	je	LBB0_6
+## BB#2:                                ##   in Loop: Header=BB0_1 Depth=1
+	movl	-4(%rbp), %eax
+	cmpl	-8(%rbp), %eax
+	jle	LBB0_4
+## BB#3:                                ##   in Loop: Header=BB0_1 Depth=1
+	movl	-4(%rbp), %eax
+	subl	-8(%rbp), %eax
+	movl	%eax, -4(%rbp)
+	jmp	LBB0_5
+LBB0_4:                                 ##   in Loop: Header=BB0_1 Depth=1
+	movl	-8(%rbp), %eax
+	subl	-4(%rbp), %eax
+	movl	%eax, -8(%rbp)
+LBB0_5:                                 ##   in Loop: Header=BB0_1 Depth=1
+	jmp	LBB0_1
+LBB0_6:
+	movl	-4(%rbp), %eax
+	popq	%rbp
+	retq
+	.cfi_endproc
+
+
+.subsections_via_symbols
+#+end_example
+
+
+The syntax above is useful for some purposes, but not others. For
+example, consider the ~subl~ instruction in ~BB#3~.  On x86, this is
+compiled to the string: ~0x2b 0x45 0xf8~.  The string is one
+representation; we can also look at the assembly itself as another
+syntax.  Assembly is useful in the sense it provides a mnemonic for
+what the instruction does.  One would rightfully guess that the ~subl~
+subtracts. 
+
+But ~subl~ does much more: it also computes status register flags,
+which in general are used for conditional control flow, e.g., to
+implement ~if~, ~while~, and other statements.  The assembly syntax
+does not convey these side effects.
+
+BIL is an abstract syntax that makes explicit all side effects of
+binary code. BIL is lower-level than assembly in that a single
+assembly instruction likely corresponds to multiple BIL instructions.
+For example, we can use the ~bap-mc~ command to print out the BIL for
+the instruction:
+
+#+BEGIN_SRC sh :tangle no :exports both :results output verbatim replace
+echo "0x2b 0x45 0xf8" | bap-mc --show-inst --show-bil
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+subl -0x8(%rbp), %eax
+{
+  t_1 := low:32[RAX]
+  RAX := pad:64[(low:32[RAX]) - (mem64[RBP + 0xFFFFFFFFFFFFFFF8:64, el]:u32)]
+  CF := t_1 < (mem64[RBP + 0xFFFFFFFFFFFFFFF8:64, el]:u32)
+  OF := high:1[(t_1 ^ (mem64[RBP + 0xFFFFFFFFFFFFFFF8:64, el]:u32)) & (t_1 ^ (low:32[RAX]))]
+  AF := 0x10:32 = (0x10:32 & (((low:32[RAX]) ^ t_1) ^ (mem64[RBP + 0xFFFFFFFFFFFFFFF8:64, el]:u32)))
+  PF := ~(low:1[let acc_2 = ((low:32[RAX]) >> 0x4:32) ^ (low:32[RAX]) in
+    let acc_2 = (acc_2 >> 0x2:32) ^ acc_2 in
+    (acc_2 >> 0x1:32) ^ acc_2])
+  SF := high:1[low:32[RAX]]
+  ZF := 0x0:32 = (low:32[RAX])
+}
+#+end_example
+
+The BIL statements are show in the curly brackets.  BIL exposes the
+fact that ~subl~ computes the ~CF~, ~OF~, ~AF~, ~PF~, ~SF~, and ~ZF~
+register flags.  
+
+Each one of the lines above is a BIL statement.  In OCaml, the type of
+BIL statements ~stmt~ is:
+#+BEGIN_SRC ocaml :tangle no
+type stmt =
+  | Move    of var * exp  (** assign value of expression to variable *)          |
+  | Jmp     of exp        (** jump to absolute address *)                        |
+  | Special of string     (** Statement with semantics not expressible in BIL *) |
+  | While   of exp * stmt list (** while loops  *)                               |
+  | If      of exp * stmt list * stmt list (** if/then/else statement  *)        |
+  | CpuExn  of int                         (** CPU exception *)                  |
+#+END_SRC
+
+Note the type of ~stmt~ is recursive for ~While~.  This is
+intentional, and useful when specifying lifters.  For example, the
+~rep~ prefix adds the notion of iterating an instruction (the rep'ed
+instruction). In BIL, we create a while loop for the ~rep~ condition,
+where the body is a list of statements for the instruction.
+
+When David started working on binary analysis many years ago, he
+thought that BIL was enough. Time has proven that notion incorrect.
+The problem is as follows. On the one hand we need loops to represent
+instructions like ~rep~ prefixed instructions.  It makes sense to have
+an IL as a language to specify the semantics of such statements.
+However, the IL doesn't quite match notions in compiler books of
+intermediate representations, and this caused considerable difficulty
+when writing analysis.  For example, in analysis it's a pain to deal
+with recursive statement types, we would like statements to have
+identifiers (e.g., to reference them), and having everything in single
+static assignment form (SSA) usually (but not always) makes many
+analysis conceptually cleaner.  
+
+To solve this conundrum, BAP introduces the notion of an intermediate
+_representation_ (not language) BIR.  BIR is derived from the BIL, and
+more appropriate for program analysis.
+
+An example of BIR output is below:
+#+BEGIN_SRC sh :tangle no :exports both :results output verbatim replace
+echo "0x2b 0x45 0xf8" | bap-mc --show-inst --show-bir
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+subl -0x8(%rbp), %eax
+00000001: 
+00000002: t_1 := low:32[RAX]
+00000003: RAX := pad:64[(low:32[RAX]) - (mem64[RBP - 0x8:64, el]:u32)]
+00000004: CF := t_1 < (mem64[RBP - 0x8:64, el]:u32)
+00000005: OF := high:1[(t_1 ^ (mem64[RBP - 0x8:64, el]:u32)) & (t_1 ^ (low:32[RAX]))]
+00000006: AF := ((((low:32[RAX]) ^ t_1) ^ (mem64[RBP - 0x8:64, el]:u32)) & 0x10:32) = 0x10:32
+00000007: PF := ~(low:1[let acc_2 = ((low:32[RAX]) >> 0x4:32) ^ (low:32[RAX]) in
+let acc_2 = (acc_2 >> 0x2:32) ^ acc_2 in (acc_2 >> 0x1:32) ^ acc_2])
+00000008: SF := high:1[low:32[RAX]]
+00000009: ZF := (low:32[RAX]) = 0x0:32
+
+#+end_example
+
+Notice each statement is numbered, which allows us to easily index
+terms we care about.  In a more complex example you would notice the
+variables are in single static assignment form.  There are more
+features, but these two are quite compelling alone. 
+
+
+The above discussion focused on the syntax of binary analysis.  In
+program analysis, the goal is to understand the semantics. Anyone
+writing a semantic analysis is going to either be hampered or helped
+by the syntax of the language.  At a high level, BAP provides an
+appropriate syntax and library of features, while the analysis
+provides most of the semantics.  For example, we typically would do
+type-checking (semantic analysis) over the AST (a convenient syntax)
+instead of the raw text file (an inconvenient syntax for analysis).
+
+
+Overall, the differences between BIL and BIR include:
+  * BIL is meant for people writing lifters that expose the side
+    effects of instructions, BIR is intended for compiler analysis.
+  * BIR is a representation of BIL;
+  * BIR is more suitable for writing analysis;
+  * BIR is concrete: where BIL represents abstract entities, that are
+    unchangeable and permanent, BIR is a concrete representation
+    suitable for, modifications.
+
+The common parts between BIL and BIR are:
+  * the same expression sub-language as BIL;
+  * the same type system;
+  * the same semantics (of course).
+
+** Sound-iness and Binary Analysis
+
+
+BAP focuses on binary (aka executable) programs.  Executable analysis
+is different than source code in that in that in binary analysis we
+must manage uncertainty about type and control flow abstractions, as
+well as stratify and manage the set of assumptions we are working
+with.
+
+
+An executable program does not inherently contain high-level
+abstractions.  We have no procedures, no local variables, no user
+types, and only primitive notions of control flow.  A large part of
+binary analysis is recovering these abstractions in order to make
+analysis scale, and not produce trivial results. For example, while
+the notion of a function is useful for the programmer, it's not
+terribly useful to the processor, thus not included in binary
+code. However, we may want to infer procedures from the binary to make
+downstream analysis scale, e.g., by considering function control flow
+graphs individually and then combining results instead of considering
+a larger whole-program control flow graph.
+
+An important point is that compilation is lossy: given a binary, you
+cannot necessarily recover all high-level constructs as information
+may be lost.  This bears worth repeating because it seems to be a
+common novice mistake. Compilation is not a bijection: you cannot
+necessarily infer from low-level binary abstractions the original
+high-level source abstractions.
+
+
+Therefore a main challenge is designing techniques that can carefully
+make use of that incomplete information while not falling into a
+black-hole of unfounded assumptions.  For example, in binary analysis
+we must cope with indirect (computed) jumps, which in turn means any
+control flow graph is likely incomplete. This is a funny state: the
+CFG is an over-approximation most places, but also simultaneously an
+under-approximation where we cannot resolve jumps. We may run analysis
+on the CFG (e.g., dead code analysis), later to find out that we
+missed an important target (e.g., that uses something we once thought
+dead). We may throw in an assumption, e.g., procedures start with a
+prologue, and all code that matches known prologue sequences indicates
+the start of a procedure. Careful management is needed indeed to make
+sure assumptions don't cascade out of control, and that we really
+understand our results.
+
+BAP's foremost goal is to provide a useful library of tools for
+creating binary analysis.  In order to achieve that goal, we have made
+various decisions.  We've found it helpful to have a guiding
+philosophy for those decisions.  We consciously have the philosophy of
+striving to make an environment where analysis "soundy". Ramifications
+include things like not making decisions for the user, making sure we
+don't hide errors, and so on.
+
+Recall _soundness_ means if the analysis says a fact is true, it must
+really be true.  Sound analysis are invariably if-then statements:
+assuming x is true, I've proved y.  Such statements are sound in the
+logical sense: if x is not true, y may or may not be true. 
+
+"Soundiness" is a term invented by Ben Livshitz, which we borrow to
+connotate the notion of making explicit (or make the user of the
+library make an explicit choice) what is in the "if" part of the
+statement. That is, BAP tries to make the set of assumptions clear,
+explicit, and modular so that the assumptions can be replaced or
+removed (say by better analysis) if desired.
+
+
 ** Why OCaml?
 
-We recognize OCaml is typically not someone's first programming
-language.  Why not use a more main stream language? 
+BAP is written in OCaml.  We recognize OCaml is typically not
+someone's first programming language.  Why not use a more main stream
+language?
 
-BAP is written in OCaml because it provides strong type safety
-guarantees, has a nice module system, and creates fast code.  BAP is
-not for novice programmers. BAP is designed for rigorous program
-analysis, and built in a framework that tries to support reasonable
-safety and type guarantees.  As such, BAP uses what many call advanced
-programming features.
+BAP's main goal is to provide a rigorous program analysis framework
+where the type system protects us from making mistakes when possible,
+and the resulting code is fast.  There are a million ways you can
+shoot yourself in the foot.  BAP's goal is to remove bullets due to
+poor programming practices, leaving only bullets due to more
+fundamental algorithm issues. Part of this is about scientific
+integrity: we are constantly performing research and publishing
+papers, and we're committed to making the BAP code available for those
+papers.  Bugs could color the results, thus it makes sense to try and
+limit bugs by using programming best practices.
 
 OCaml is just the right tool for the job. Binary analysis is tough
 enough without having to worry about run time errors and weak type
-systems. There are a million ways you can shoot yourself in the foot.
-BAP's goal is to remove bullets due to poor programming practices,
-leaving only bullets due to more fundamental algorithm issues. Part of
-this is about scientific integrity: we are constantly performing
-research and publishing papers, and we're committed to making the BAP
-code available for those papers.  Bugs could color the results, thus
-it makes sense to try and limit bugs by using programming best
-practices.
+systems. OCaml provides strong type safety guarantees, nice module
+system, and fast code.  BAP uses what many call advanced programming
+features to achieve these benefits, and is written in the Jane Street
+Core-style of programming. We strive for "industry grade" code.
 
-In addition, program analysis is generally easier in a functional
-language like OCaml. As an interesting anecdote, we've seen this play
-out even in the Carnegie Mellon University undergraduate compiler
-course.  I was a graduate student TA'ing the class for Ed Clarke
-(Turing Award winner) and Peter Lee (then CS Department Head, now VP
-at Microsoft)in the early 2000's.  We allowed students to pick a
-language for their compiler: C, Java, or ML. There was a striking
-trend: those who picked ML generally received an A *regardless* of
-whether they knew ML before starting the class.  Those who picked Java
-generally got a B: their code worked but their algorithms were not
-fast, and the code generated was lackluster.  Those who picked C
-generally did very poorly, often struggling to get the end-to-end
-compiler from parsing to code generation working reliably. Today CMU
-does not let students pick a language: they have to use ML.
+BAP's primary design goal is not being easily approachable by novice
+programmers. We have a number of competing goals in BAP, with strong
+type safety (so we can use the type system to avoid bugs) being one of
+the highest priorities.  We personally think BAP is convenient and
+readable, and BAP does boast massive documentation. However, we assume
+someone using BAP has functional programming experience.
 
+We think once you gain experience in functional programming, writing
+analysis in a functional language like OCaml is a million times easier
+than in an imperative or scripting language.  As an interesting
+anecdote, we've seen this play out even in the Carnegie Mellon
+University undergraduate compiler course.  I was a graduate student
+TA'ing the class for Ed Clarke (Turing Award winner) and Peter Lee
+(then CS Department Head, now VP at Microsoft)in the early 2000's.  We
+allowed students to pick a language for their compiler: C, Java, or
+ML. There was a striking trend: those who picked ML generally received
+an A *regardless* of whether they knew ML before starting the class.
+Those who picked Java generally got a B: their code worked but their
+algorithms were not fast, and the code generated was lackluster.
+Those who picked C generally did very poorly, often struggling to get
+the end-to-end compiler from parsing to code generation working
+reliably. Today CMU does not let students pick a language: they have
+to use ML.
 
-In my opinion, binary analysis is even tougher than normal
-source-based analysis.  High level programs have types, high-level
-control flow, and other programming features that provide abstractions
-to improve productivity. Compilation gets to take advantage of these
-abstractions.  Binary analysis, however, does not have these
-abstractions, and must constantly manage uncertainty.  For example, in
-source you typically know the control flow graph; in binary analysis
-we typically are coping with uncertainty about the graph. In source,
-you have types. In binary analysis we are trying to infer the type,
-and don't know whether the 32-bit register value is an integer,
-unsigned integer, pointer, or something else all together. This all
-puts an exclamation point on the need for using the best language for
-the job.
-
-
-Why not lower the entry barrier, e.g., by using a language like
-Python?  We would love to, but that is not our main goal right
-now. Our main goal is to try and get binary analysis right. We do
-provide some python bindings, and update them as we have
-time. However, we encourage people to use OCaml directly. 
 
 Don't be scared if you don't know OCaml.  OCaml doesn't let you be
 sloppy, so you may feel less productive, especially at first.  This is
 just you become a more experienced programmer and better computer
 scientist.
 
+Looking forward, we do hope to provide bindings to other languages,
+and there are some alpha-quality bindings to python already. However,
+we believe a more-than-casual user will likely always want to write
+directly in OCaml.
 
-** Program to analyze
+
+* Installing BAP
+BAP is distributed two ways:
+  - Our major releases appear in the OCaml opam repository
+  - The current development version is on [[https://github.com/binaryanalysisplatform/bap][GitHub]] 
+
+We recommend you use opam to install BAP regardless of whether you
+want the development or release versions. You should install opam
+either directly from the website, or through your favorite package
+manager.
+
+*Note:* Please make sure you are running opam version 1.2 or
+greater. Many package managers include an outdated version of opam
+that doesn't play nice.
+
+** Installing BAP dependencies
+
+BAP depends on LLVM and the Clang compiler. *BAP depends on LLVM 3.4.*
+LLVM constantly updates their interface, and using BAP with any other
+version of LLVM is unsupported. (We picked LLVM 3.4 because it was the
+default version on Ubuntu Trusty, which is a LTS version of Ubuntu.)
+
+We provide a file `apt.deps` that contains package names as they are
+in Ubuntu Trusty. Depending on your OS and distribution, you may need
+to adjust this names. On most Debian-based Linux distribution, this
+should work:
+
+#+BEGIN_SRC sh :tangle no
+sudo apt-get install $(cat apt.deps)
+#+END_SRC
+
+If you wish to install the alpha and unsupported python bindings, also
+install Python and ~pip~.
+
+** Installing BAP releases
+
+To install the latest release of BAP, run:
+#+BEGIN_SRC shell :tangle no
+opam update
+opam install bap
+#+END_SRC
+
+If you've properly set up opam, you should now be able to run the
+~bap~ program:
+#+BEGIN_SRC sh :results output verbatim 
+bap --version
+#+END_SRC
+
+#+RESULTS:
+
+
+
+** Installing the latest development version from GitHub
+TBD
+
+** Installing python bindings
+
+If you're interested in python bindings, then you can install them
+using ~pip~. Note that the bindings are alpha, and may not support all
+features found in OCaml. 
+
+#+BEGIN_SRC shell :tangle no
+pip install git+git://github.com/BinaryAnalysisPlatform/bap.git
+#+END_SRC
+
+If you don't like `pip` and you've installed from github, then you can
+just go to `bap/python` folder and copy-paste the contents to whatever
+place you like, and use it as desired.  You may need to use ~sudo~ or
+to activate your ~virtualenv~ if you're using one.
+
+After bindings are properly installed, you can start to use it:
+
+#+BEGIN_EXAMPLE
+    >>> import bap
+    >>> print '\n'.join(insn.asm for insn in bap.disasm("\x48\x83\xec\x08"))
+        decl    %eax
+        subl    $0x8, %esp
+#+END_EXAMPLE
+
+A more complex example:
+
+#+BEGIN_EXAMPLE
+    >>> img = bap.image('coreutils_O0_ls')
+    >>> sym = img.get_symbol('main')
+    >>> print '\n'.join(insn.asm for insn in bap.disasm(sym))
+        push    {r11, lr}
+        add     r11, sp, #0x4
+        sub     sp, sp, #0xc8
+        ... <snip> ...
+#+END_EXAMPLE
+
+
+For more information, read builtin documentation, for example with
+~ipython~:
+#+BEGIN_EXAMPLE
+    >>> bap?
+#+END_EXAMPLE
+
+** Installing a development environment
+
+If you plan on developing in BAP, we strongly advocate that you use
+~emacs~, ~tuareg~, ~ocp-indent~, and ~merlin~.  You can get things
+working for ~vim~, but internally we frown on this and assume you are
+scared to learn a new text editor.  
+
+We recommend Emacs 24 or greater, and that you use the opam versions
+of ~tuareg-mode~, ~ocp-indent~, and ~merlin~. The BAP wiki has
+examples on how to get this all set up properly. We will not accept
+pull requests with code not automatically and properly indentend with
+~ocp-indent~, and not adhering to our coding style. 
+
+
+** Troubleshooting
+
+There are a couple of common issues when installing:
+  - You have problems linking against LLVM. Please make sure you have
+    llvm-3.4 installed, and not some other version. Note later
+    versions like llvm-3.5 do *not* work because LLVM keeps making
+    incompatible updates to their interfaces, and we do not have time
+    to support every version.
+  - You did not install ~gmp~ if you are on OS X. We typically use
+    ~port~ to install dependencies like this.
+  - You are using an outdated version of opam.  Please make sure you
+    are running a version greater than 1.2
+
+
+* Running BAP
+
+BAP consists of four logical components:
+  1) A set of command line programs for basic binary analysis.
+  2) A set of program analysis plugins, which can be run via the =bap=
+     command line.
+  3) A development environment for creating new program analysis. We
+     recommend you use ~utop~ to get familiar with the interface.
+
+In this section we briefly discuss (1), leave (2) for self-discovery,
+with (3) being the main focus of this document.
+
+
+The main BAP binary is ~bap~, and found in your opam ~bin~
+directory. The command line options are documented with
+#+BEGIN_SRC shell :tangle no
+bap --help
+#+END_SRC
+
+~bap~ requires one argument: the file to analyze.
+#+BEGIN_SRC shell
+bap /bin/ls
+#+END_SRC
+
+You will notice no output.  This is because we have no instructed
+~bap~ what to print.  To print, specify the ~-d~ option:
+
+#+BEGIN_EXAMPLE
+       -d [VAL], --dump[=VAL] (default=asm)
+           Print dump to standard output. Optional value defines output
+           format, and can be one of `asm', `bil' or `bir'. You can specify
+           this parameter several times, if you want both, for example.
+#+END_EXAMPLE
+
+For example, to dump both BIL and BIR, run:
+#+BEGIN_SRC shell :tangle no
+bap -d bil -d bir /bin/ls
+#+END_SRC
+BAP will intelligently combine both options to produce a unified
+output.
+
+If you are analyzing C++ binaries, you likely also want to demangle
+any symbol names.  BAP has an option for that:
+#+BEGIN_EXAMPLE
+       --demangle[=VAL] (default=internal)
+           Demangle C++ symbols, using either internal algorithm or a
+           specified external tool, e.g. c++filt.
+#+END_EXAMPLE
+
+BAP can use two algorithms to identify _functions_ (aka _symbols_):
+byteweight and IDA Pro. By default we use byteweight and IDA if
+installed.  Byteweight requires a datafile to operate properly, and
+the latest version can be downloaded via the internet using:
+#+BEGIN_SRC shell :tangle no
+bap-byteweight update
+#+END_SRC
+
+If you have IDA installed, BAP can use it as well.  BAP uses ~locate~
+to pick the default version of IDA, or you can specify a path to a
+particular version:
+#+BEGIN_EXAMPLE
+       --use-ida[=VAL] (default=)
+           Use IDA to extract symbols from file. You can optionally provide
+           path to IDA executable,or executable name.
+#+END_EXAMPLE
+
+You can also disable byteweight by using the ~--no-byteweight~
+flag. Therefore, by picking whether or not to disable byteweight, and
+specifying (or not specifying) IDA, you can pick and choose what
+methods or combination of methods you would like to use for function
+identification.  Note that BAP will use the union of all symbols
+found, i.e., if you specify both IDA and byteweight, all analysis will
+be with respect to function names found by either method.
+
+* Starting with BAP Development
+
+We recommend the following steps for becoming proficient in BAP.   The
+first 5 are general background tasks that will bring you up to speed
+with the BAP development environment.
+
+  1) Install emacs. You could work in vim, but we don't know how.
+     If you don't know emacs, take this as an opportunity to expand
+     your skill set to a tremendously good editor. 
+  2) Install opam.
+  3) Install bap from opam.
+  4) Configure emacs to work with opam merlin mode
+  5) Become familiar with the BAP command line
+  6) Read Real World OCaml Language Concepts.  The first section of
+     Real World OCaml (RWO) is called Language Concepts, and includes
+     a thorough introduction to OCaml and modern OCaml idioms. We
+     recommend that you actually type in all the examples by hand; you
+     will learn more than by trying to just "read" the book.
+  7) Become familiar using BAP from ~utop~
+  8) Read through ~bap.mli~ or the generated documentation. This
+     should take a few hours at most.
+  9) Start developing plugins
+  10) Highly recommended: read up through Chapter 3 of Computer
+      Systems: A Programmers Perspective (CS:APP).  This will give you
+      background on bits, assembly, and semantics of assembly
+      instructions.  You not read it away, but it's great material to
+      become familiar with.
+
+We assume you've done steps 1-5 from previous sections, have done 6 on
+your own. The rest of this book starts on 7.
+
+** BAP and utop
+
+It is a good idea to learn how to use our library by playing in an OCaml
+top-level. If you have installed ~utop~, then you can just use our ~baptop~
+script to run ~utop~ with ~bap~ extensions:
+
+#+BEGIN_SRC :tangle no
+baptop
+#+END_SRC
+
+Now, you can play with BAP. For example:
+
+#+BEGIN_EXAMPLE
+utop # open Bap.Std;;
+utop # let d = disassemble_file "ls";;
+val d : t = <abstr>
+utop # let insn = Disasm.insn_at_addr d (Addr.of_int32 0xa9dbl);;
+val insn : (mem * insn) option = Some (0000a9d8: 01 00 00 0a , beq #0x4; Bcc(0x4,0x0,CPSR))
+let blk = Disasm.blocks d |> Table.elements |> Seq.hd_exn;;
+val blk : block = [991c, 9923]
+utop # Block.leader blk;;
+- : insn = push {r3, lr}; STMDB_UPD(SP,SP,0xe,Nil,R3,LR)
+utop # Block.terminator blk |> Insn.bil;;
+- : Bap_types.Std.bil = [LR = 0x9924:32; jmp 0x9ED4:32]
+#+END_EXAMPLE
+
+If you do not want to use ~baptop~ or ~utop~, then you can execute the following
+in any OCaml top-level:
+
+#+BEGIN_SRC ocaml :tangle no
+#use "topfind";;
+#require "bap.top";;
+open Bap.Std;;
+#+END_SRC
+
+And everything should work just out of box, i.e. it will load all the
+dependencies, install top-level printers, etc.
+
+*NOTE:* You should *never* need to open anything outside of the
+~Bap.Std~ heirarchy.  We've set it up so you shouldn't be able to do
+this.  You can open modules below ~Bap.Std~, but other things are
+intentionally left unaccessible so you don't accidently violate
+abstractions.
+
+
+** BAP Plugins: An Overview
+
+In the typical usage of BAP, an analyst would write an analysis
+ *after* BAP has performed the following steps:
+   1) Load the binary file. BAP can work with other images as well,
+      but binary files are the norm.
+   2) Disassemble the file. This step provides the syntax of the
+      program. 
+   3) Lift the assembly into the semantics of the BAP Instruction
+      Language (BIL).  BIL makes all side effects of instructions
+      explicit. For example, the =subl= instruction will have the
+      subtraction plus 6 more BIL statements for the side effects.
+   4) Translate BIL into BIR.
+
+
+The analysis is performed on the resulting BAP abstractions.  Note
+that there are three distinct languages: the assembly, BIL, and
+BIR. We expect robust analysis would be on BIR; working with raw
+assembly would be error-prone and specific to an architecture. 
+
+BAP has a layered architecture consisting of four layers. Although the
+layers are not really observable from outside of the library, they
+make it easier to learn the library, as they introduce new concepts
+sequentially. On top of this layers, the {{!section:project}Project}
+module is defined, that consolidates all information about target of
+an analysis. The ~Project~ module may be viewed as an entry point to the
+library.
+
+#+BEGIN_EXAMPLE
+        +-----------------------------------------------------+
+        | +--------+   +-----------------------------------+  |
+        | |        |   |                                   |  |
+        | |        |   |       Foundation Library          |  |
+        | |        |   |                                   |  |
+        | |        |   +-----------------------------------+  |
+        | |   P    |                                          |
+        | |        |   +-----------------------------------+  |
+        | |   R    |   |                                   |  |
+        | |        |   |          Memory Model             |  |
+        | |   O    |   |                                   |  |
+        | |        |   +-----------------------------------+  |
+        | |   J    |                                          |
+        | |        |   +-----------------------------------+  |
+        | |   E    |   |                                   |  |
+        | |        |   |           Disassembly             |  |
+        | |   C    |   |                                   |  |
+        | |        |   +-----------------------------------+  |
+        | |   T    |                                          |
+        | |        |   +-----------------------------------+  |
+        | |        |   |                                   |  |
+        | |        |   |        Semantic Analysis          |  |
+        | |        |   |                                   |  |
+        | +--------+   +-----------------------------------+  |
+        +-----------------------------------------------------+
+#+END_EXAMPLE
+
+The _Foundation library_ defines BAP Instruction language data types,
+as well as other useful data structures, like ~Value~, ~Trie~,
+~Vector~, etc. The _Memory model_ layer is responsible for loading and
+parsing binary objects and representing them in computer memory. It
+also defines a few useful data structures that are used extensively by
+later layers, like ~Table~ and ~Memmap~. The next layer performs
+_disassembly_ and lifting to BIL. Finally, the _semantic analysis_
+layer transforms a binary into an IR representation, that is suitable
+for writing analysis.
+
+Another important point of view is the BAP plugin architecture.
+Similar to GIMP or Frama-C, BAP features a pluggable architecture with
+a number of extension points. For example, even the LLVM disassembler
+is considered a type of plugin.  Currently we support three such
+extension points in BAP:
+  - _loaders_ - to add new binary object loaders;
+  - _disassemblers_ - to add new disassemblers;
+  - _program analysis_ - to write analysis.
+
+The latter category of plugins is most widely used. Therefore, when we
+use the term "plugin" without making a distinction, we refer to a
+program analysis plugin. The following figure provides an overview of
+the BAP system.
+
+#+BEGIN_EXAMPLE
+        +---------------------------------------------+
+        |  +----------------+    +-----------------+  |
+        |  |    Loader      |    |  Disassembler   |  |
+        |  |    Plugins     |    |    Plugins      |  |
+        |  +-------+--------+    +--------+--------+  |
+        |          |                      |           |
+        |  +-------+----------------------+--------+  |
+        |  |                                       |  |
+        |  |             BAP Library               |  |
+        |  |                                       |  |
+        |  +-------+-------------------------------+  |
+        |          ^                      ^           |
+        |          |                      |           |
+        |  +-------+--------+    +--------+--------+  |
+        |  |                |    |                 |  |
+        |  |  BAP toolkit   |<-->|   BAP Plugins   |  |
+        |  |                |    |                 |  |
+        |  +----------------+    +-----------------+  |
+        +---------------------------------------------+
+
+#+END_EXAMPLE
+
+All plugins have full access to the library; an important consequence
+is that they can and should open ~Bap.Std~. The BAP library uses
+backend loader and disassembler plugins to provide its
+services. Program analysis plugins are loaded by BAP toolkit
+utilities. These utilities extend plugin functionality by providing
+access to the state of the target of analysis or, in our parlance, to
+the ~project~. 
+
+Other than library itself, and the BAP toolkit, there are two
+additional libraries that are bundled with BAP:
+      - ~bap.plugins~ to dynamically load code into BAP;
+      - ~bap.serialization~ to serialize BAP data structures in
+        different formats.
+
+** VERY IMPORTANT INFORMATION!
+
+Did you notice anything peculiar about that past section?  If not, you
+likely did not read ~bap.mli~, as suggested above. Please take a
+moment and read ~bap.mli~.  
+
+** Example program to analyze
 
 We will be analyzing the following example, which is an (intentionally
 non-optimal) program that counts the frequency of letters in an input:
 
-#+BEGIN_SRC C :tangle exe.c
+#+BEGIN_SRC C :tangle exe.c 
 #include <stdio.h>
 #include <ctype.h>
 
@@ -192,26 +874,17 @@ int main(int argc, char *argv[])
 }
 #+END_SRC
 
-#+RESULTS:
-| Usage:  | /var/folders/xj/kkd3v_ls0yjbyz5sj6spjskw0000gn/T/babel-88225amK/C-bin-88225ZqK | <string> |     |            |          |    |          |
-| Prints  | a                                                                              | count    | for | each       | letter   | in | <string> |
-| Returns | total                                                                          | number   | of  | characters | counted. |    |          |
-
-Compiled with:
-#+BEGIN_SRC sh :verbatim
+In this book, we've compiled the program as:
+#+BEGIN_SRC shell
 gcc -g  exe.c -o exe
 #+END_SRC
 
-#+RESULTS:
-
-
-** A Basic Plugin
-
+** BAP Plugin: An Example
 Plugins interact with BAP via the =Plugin= module.  All plugins must
 _register_ with the BAP system.  When you write a plugin, you specify
 a function that gets in a =Plugin.t=, which is filled in by BAP. 
 
-Let's start a very basic plugin that just prints "Hello World\n".
+Let's start a very basic plugin that just prints ~"Hello World"~.
 Call the file =simplehello.ml=, and type in:
 
 #+BEGIN_SRC ocaml :tangle simplehello.ml
@@ -219,12 +892,13 @@ open Core_kernel.Std
 open Bap.Std
     
 let main p = 
-  Printf.printf "Hello world!\n";
-  p
+  printf "Hello world!\n"
 
 let () = Project.register_pass' "hello" main
 #+END_SRC
 
+*Note*: Notice the ~'~ at the end of ~register_pass'~.  That is
+intentional. 
 
 Plugins must be registered with the BAP system.  There are a few
 functions for registering passes. The one above registers a pass that
@@ -232,13 +906,14 @@ returns unit (i.e., the pass will only be executed for side effects)
 that is called "hello" and uses the function =main= for the pass
 implementation.
 
+
 Plugins are compiled with the BAP =bapbuild= command, which takes care
 of linking against the BAP libraries. =bapbuild= works like
 =corebuild= for the Jane Street Core library.
 
 If the above Save the file as =simple.ml=, then to compile it as a
 plugin you would run:
-#+BEGIN_SRC sh  :results verbatim
+#+BEGIN_SRC shell 
 bapbuild simplehello.plugin
 #+END_SRC
 
@@ -248,7 +923,7 @@ are running the =simple.plugin= (note we can omit the =.plugin=
 suffix) on the file =exe.arm=:
 
 #+name: hello1
-#+BEGIN_SRC shell :exports results 
+#+BEGIN_SRC shell :exports results :output verbatim
 bap -lsimplehello exe
 #+END_SRC
 
@@ -265,19 +940,27 @@ focus on static analysis of executable programs.  Even if you want to
 analyze other sources (e.g., traces), understanding how executables on
 disk are analyzed is a good place to start.
 
-
-We describe information using the following format:
- 1) We first  give a high level concept
+*** TODO Fix makefile that builds tangled examples
+** Subsequent Chapters
+We'll describe information using the following format:
+ 1) We first  give a high level concept. Most of the time we will be
+    focusing on a particular BAP module. 
  2) We next provide an example plugin that exhibits the desired
     functionality.
- 3) We provide a more detailed breakdown of the plugin code. 
+ 3) We provide a more detailed breakdown of the plugin code.
+ 4) We'll provide a summary of the main concepts.
 
+We start with very simple plugins showing the ~arch~ and ~disasm~
+modules.  These chapters are intended to give a feel for BAP, as well
+as give examples of the BAP (and sometimes Jane Street Core) way of
+doing things.  We then jump to the ~program~ abstraction, which is
+where we believe most analysis will be written.
 
-*Main Points:*
+** The Most Significant Bits
+The most significant bits from this chapter are:
  - Plugins interact with BAP via the =Plugin= module.
  - Compile with the =bapbuild= system.
  - Plugins are run with the =-l= command line option.
-
 
 * =arch=: Interacting with architecture information
 
@@ -297,6 +980,7 @@ contains complete information on everything that BAP provides.)
 
 Here is a simple example that checks the architecture, and prints out
 a message based on the architecture type:
+
 
 #+BEGIN_SRC ocaml :tangle simplearch.ml
 (* simplearch.ml *)
@@ -391,6 +1075,74 @@ The important thing to notice is the match is against =arm=, not
 a bug: none of the other cases will ever be true.  Contrast with the
 correct way earlier where we matched against the pattern =#arm=.
 
+** Printing, Common Functions, and =Regular=
+
+Module =Arch=, like most in BAP, have a signature that includes
+=Regular=:
+#+BEGIN_SRC ocaml
+module Arch : sig
+  ...
+  include Regular with type t := t
+#+END_SRC
+
+This last line says that we are pulling in everything from the
+signature =Regular=.  =Regular= is well-described in the bap
+documentation:
+
+#+BEGIN_QUOTE
+      Most of the types implement the =Regular=
+      interface. This interface is very similar to Core's
+      =Identifiable=, and is supposed to represent a type that is as
+      common as a built-in type. One should expect to find any
+      function that is implemented for such types as =int=, =string=,
+      =char=, etc.  Namely, this interface includes:
+
+      - comparison functions: ([<, >, <= , >= , compare, between, ...]);
+      - each type defines a polymorphic [Map] with keys of type [t];
+      - each type provides a [Set] with values of type [t];
+      - hashtable is exposed via [Table] module;
+      - hashset is available under [Hash_set] name
+      - sexpable and binable interface;
+      - [to_string], [str], [pp], [ppo], [pps] functions
+      for pretty-printing.
+#+END_QUOTE
+
+This means we can use existing functionality to do printing.  Let's
+say we want to print out the architecture for the binary we are
+analyzing. Here is a simple plugin to do just that:
+
+#+BEGIN_SRC ocaml :tangle simplearch2.ml
+(* simplearch2.ml *)
+open Core_kernel.Std
+open Bap.Std
+
+let main p =
+  printf "%a\n" Arch.pps (Project.arch p)
+
+let () = Project.register_pass' "simplearch2" main
+#+END_SRC
+
+
+*Why "%a"?* If you come from a C background, you would probably
+gravitate towards printing as follows:
+#+BEGIN_SRC ocaml :notangle 
+  printf "%s\n" Arch.to_string (Project.arch p)
+#+END_SRC
+
+Both have the same end result: printing the architecture as a string.
+However, they are *not* equivalent. 
+
+The =%s= version first creates a string in memory, which is then
+passed to an output channel.  This is fine, but can be very
+inefficient, especially for larger structures.
+
+=Arch.pps= is a formatted output function for =%a=. While the actual
+semantics are a little complicated, the important feature is that =%a=
+will not create a separate string representation in memory, and works
+directly with the printer.  *=%a= is always preferred over =%s= when
+working with an output channel.*
+
+
 ** The High Bits
  - A project has information about the architecture, which can be used
    to parameterize a plugin specific to a particular architecture.
@@ -399,17 +1151,9 @@ correct way earlier where we matched against the pattern =#arm=.
  - Be careful with matching. OCaml types help prevent mistakes, but
    don't catch them all. RWO has an entire block at the end of Chapter
    6 talking about the pros and cons of polymorphic variants.
-
-
-** TODO =Arch= and =Regular=
-Extend example to include Regular printing =to_string=
-
-
-** DONE Why not to_string for Arch?
-Everything that implements Regular includes Printable, and everything
-(including regular and more) that include Printable have to_string.
-
-
+ - Most types include =Regular=, which gives you common functionality
+   printing, creating a string representation, comparison, and so on.
+ - Use =%a= over =%s= as a general rule of thumb.
 * =disasm=: Disassembly
 
 BAP =disasm= module provides access to disassembly and lifters.  BAP
@@ -421,7 +1165,7 @@ tags (e.g., using =Disasm.insn=), and many other things. See the
 =Disasm= module inside =bap.mli=.
 
 Let's write two programs: one to print out all disassembled
-instructions with their addresses, and one to work with tags. 
+instructions with their addresses, and one to work with tags.  
 
 ** Disassembled instructions
 
@@ -477,7 +1221,6 @@ If we wanted to find the length of the instruction we would use
 =Memory.length mem=,  and you could hexdump the instruction with
 =Memory.hexdump=. 
 
-
 ** Anti-example:
 
 Here is another example of something that seems to print out the
@@ -502,12 +1245,11 @@ let () = Project.register_pass' "disasm" main
 This is very similar to above, except we're passing =mem= to
 =Target.CPU.addr_of_pc=.  However, the PC may not be pointing to the
 value of the instruction executed. For example, on ARM when CPU
-executes instruction at address `A` the value of PC register would
-be`A+8`, since at some point of time it had pipeline of two
+executes instruction at address =A= the value of PC register would be
+=A+8=, since at some point of time it had pipeline of two
 instructions: exec-load-fetch. In x86 it will point to the byte next
-to the instruction, i.e. `PC = A + sizeof(insn)`, on MIPS it is also
+to the instruction, i.e. =PC = A + sizeof(insn)=, on MIPS it is also
 points somewhere, ahead.
-
 
 ** Finding what you need in BAP
 
@@ -570,17 +1312,182 @@ At this point you would turn to the web and google for something like
 iterate over it with =iter=. You will find other handy functions like
 maps and folds over sequences.
 
-** Summary
+** Self-study. 
+Instructions can also have tags.  Write a plugin that uses the tag
+information.
+*** TODO ivg: check the self-study
+
+** The MSBs
+The most significant bits in this section are:
  - =Disasm= is where you want to look for disassembly information
  - All executable code (segments/sections) are disassembled and
    available via project.
  - The PC isn't the same as the address of the =insn= code. 
 
+Note we expect most people not to use =disasm= directly; these
+examples are given to get a "feel" for the BAP API, and show some
+common OCaml idioms.
 
-** TODO Working with Instruction Tags
-This should be a code example with instruction tags as describe in the
-intro for this part.
+*  =program=: The Program BIR
 
+In this section we start working with the real power of BAP: BIR.
+
+The program in IR is build of terms. In fact the program itself is
+also a term. There're only 7 kinds of terms:
+  1. ~program~: the program in whole
+  2. ~sub~: subroutine
+  3. ~arg~: subroutine argument
+  4. ~blk~: A basic block
+  5. ~def~: A definition of a variable
+  6. ~phi~: An SSA phi node
+  7. ~jmp~: A transfer of control
+
+
+Terms, can contain other terms. But unlike BIL expressions or
+statements, this relation is not truly recursive, since the structure
+of program term is fixed: ~arg~, ~phi~, ~def~, ~jmp~ are leaf terms;
+~sub~ can only contain ~arg~'s or ~blk~'s; ~blk~ consists of ~phi~,
+~def~ and ~jmp~ sequences of terms, as pictured in the figure below.
+Although, the term structure is closed to changes, you still can
+extend particular term with attributes, using ~set_attr~ and
+~get_attr~ functions of the ~Term~ module. This functions are using
+~extensible variant~ type to encode attributes.
+
+The overall picture of a BIR program is:
+#+BEGIN_EXAMPLE
+        +--------------------------------------------------------+
+        |                +-------------------+                   |
+        |                |      program      |                   |
+        |                +---------+---------+                   |
+        |                          |*                            |
+        |                +---------+---------+                   |
+        |                |        sub        |                   |
+        |                +---------+---------+                   |
+        |                          |                             |
+        |        +-----------------+---------------+             |
+        |        |*                                |*            |
+        |  +-----+-------+                 +-------+-------+     |
+        |  |    arg      |                 |      blk      |     |
+        |  +-------------+                 +-------+-------+     |
+        |                                          |             |
+        |           +---------------+--------------+             |
+        |           |*              |*             | *           |
+        |     +-----+-----+   +-----+-----+   +----+-----+       |
+        |     |    phi    |   |    def    |   |   jmp    |       |
+        |     +-----------+   +-----------+   +----------+       |
+        +--------------------------------------------------------+
+#+END_EXAMPLE
+
+
+BIR terms are _concrete entities_. In contrast, BIL statements are
+abstract entities.  A concrete entity is an entity that can change in
+time and space, as well as come in and out of existence.  Contrast
+with an _abstract entity_, which is eternal and unchangeable.
+_Identity_ denotes the sameness of a concrete entity as it changes in
+time.  Abstract entities don't have an identity since they are
+immutable.  ~program~ is built from concrete entities called terms.
+Terms have _attributes_ that can change in time, without affecting the
+identity of a term.  Attributes are abstract entities.  In each
+particular point of space and time a term is represented by a snapshot
+of all its attributes, colloquially called ~value~.  Functions that
+change the value of a term in fact returns a new value with different
+set of attributes.  For example, ~def~ term has two attributes: the
+left hand side (lhs) that associates definition with abstract
+variable, and the right hand side (rhs) that associates ~def~ with an
+abstract expression.
+
+Suppose, that the definition was:
+#+BEGIN_EXAMPLE
+# let d_1 = Def.create x Bil.(var y + var z);;
+val d_1 : Def.t = 00000001: x := y + z
+#+END_EXAMPLE
+
+
+To change the right hand side of a definition we use ~Def.with_rhs~
+that returns the _same_ definition but with _different_ value:
+#+BEGIN_EXAMPLE
+# let d_2 = Def.with_rhs d_1 Bil.(int Word.b1);;
+val d_2 : Def.t = 00000001: x := true
+#+END_EXAMPLE
+~d_1~ and ~d_2~ are different values.
+
+#+BEGIN_EXAMPLE
+# Def.equal d_1 d_2;;
+- : bool = false
+#+END_EXAMPLE
+of the same term
+#+BEGIN_EXAMPLE
+# Term.same d_1 d_2;;
+- : bool = true
+#+END_EXAMPLE
+
+The identity of this terms is denoted by the term identifier ~tid~. In
+the textual representation term identifiers are printed as ordinal
+numbers.
+
+** An example analysis: Call Graphs
+
+
+** The High Bits
+
+
+* Memory
+
+Talk about memory vs symbols.
+
+#+BEGIN_SRC ocaml :tangle djb.ml
+open Core_kernel.Std
+open Bap.Std
+open Format
+
+let print_perms seg = 
+ let r = if Image.Segment.is_readable seg then "r" else "-" in 
+ let w = if Image.Segment.is_writable seg then "w" else "-" in
+ let x = if Image.Segment.is_executable seg then "x" else "-" in
+     r^w^x
+
+let print_sections p =
+  Project.memory p |> Memmap.to_sequence |> Seq.iter ~f:(fun (mem,x) ->
+      Option.iter (Value.get Image.segment x) ~f:(fun seg ->
+          printf "Segment: %s: %s@." (Image.Segment.name seg) (print_perms seg))
+          )
+let () = Project.register_pass' "print-sections" print_sections
+#+END_SRC
+
+#+BEGIN_SRC ocaml :tangle simplememory.ml
+open Core_kernel.Std
+open Bap.Std
+open Format
+
+let print_sections p =
+  Project.memory p |> Memmap.to_sequence |> Seq.iter ~f:(fun (mem,x) ->
+      Option.iter (Value.get Image.section x) ~f:(fun name ->
+          printf "Section: %s@.%a@." name Memory.pp mem))
+
+let () = Project.register_pass' "print-sections" print_sections
+#+END_SRC
+
+** The High Bits
+
+
+* The rest
+#+BEGIN_SRC ocaml tangle:simpleprogram.ml
+open Core_kernel.Std
+open Bap.Std
+    
+
+let main p = 
+  Printf.printf "Hello world!\n";
+  p
+
+let () = Project.register_plugin main
+#+END_SRC
+
+
+*** =disasm=
+*** =program=
+*** Use program, not disasm
+Highest level possible. 
 
 
 *** TODO =memory=: Memory map and symbols
@@ -685,20 +1592,6 @@ Memmap.iter (fun value ->
   print_section tag  |> print_segment tag |>
 )
 
-*** TODO =program=: Program
-
-#+BEGIN_SRC ocaml tangle:simpleprogram.ml
-open Core_kernel.Std
-open Bap.Std
-    
-
-let main p = 
-  Printf.printf "Hello world!\n";
-  p
-
-let () = Project.register_plugin main
-#+END_SRC
-
 
 *** TODO =storage=: User storage for analysis
 #+BEGIN_SRC ocaml tangle:simplestorage.ml
@@ -714,6 +1607,164 @@ let () = Project.register_plugin main
 #+END_SRC
 
 
+* Assignments
+** Assignment: Read Real World OCaml Language Concepts
+ The first section of Real World OCaml (RWO) is called Language
+ Concepts, and includes a thorough introduction to OCaml and modern
+ OCaml idioms. 
+** Assignment: Set up BAP
+
+ Install BAP from opam.  Make sure you pin against git.  See the BAP
+ wiki for instructions on how to do this.
+
+** Assignment: Set up emacs
+
+If your first thought is "I'll use vi/vim", you are missing a
+fundamental opportunity to become a competent programmer.  A competent
+programmer knows many tools.  In particular, vi/vim and emacs are the
+two most popular editors.  If you don't know emacs, you don't know
+half of what you should on a very basic topic.
+
+Consult the BAP wiki for setting up emacs. In particular, you should
+set up:
+  - Emacs
+  - Tuareg mode using the opam version files (not melpa)
+  - Merlin mode using the opam version (not melpa)
+
+If you like you can also consult [[https://github.com/dbrumley/dotfiles/tree/master/emacs.d][David's Document Emacs]]
+configuration as an additional reference.
+
+You will also want to consult documentation for using Tuareg and
+Merlin. On reference is the [[http://www.typerex.org/files/cheatsheets/tuareg-mode.pdf][OCaml Tuareg Cheat Sheet]]. The following
+are essential keystrokes:
+  - =C-c C-l= to jump to the =mli= file for a type.
+  - =C-c C-t= to show the type of an expression.
+
+** Assignment: Find and read =bap.mli=
+Recall in OCaml an =mli= file is an interface file. The file =bap.mli=
+contains a complete description of the BAP interface, including data
+types and all functions available. 
+
+** Assignment: Write Basic Plugin
+ Write a BAP plugin that prints ~Hello World!~.  
+
+ The purpose of this plugin is: 
+   1. Ensure your environment is set up properly
+   2. Check that you know how to write the most basic BAP code.
+   3. Check that you can compile code.
+
+** Assignment: Matching Architecture
+
+ You are given two files: an x86 file called =exe.x86= and an ARM file
+ called =exe.arm=. Your goal is to write a plugin that when given an
+ ARM file prints out "I found an ARM", when given an x86 file prints
+ out "I found an x86", and when given any other type of file outputs
+ "No match".
+
+ The purpose of this plugin is:
+   1. Look at the basic =Project.t= type
+   2. Ensure you know how to pattern match against polymorphic
+      variants. 
+
+** Assignment: Print out the disassembly of a file
+
+ You are given a single =exe= file. Your goal is to write a plugin
+ that prints out for each instruction a) its address in hex, and b)
+ the assembly string.
+
+** Assignment: Write out all read-only sections in an executable file
+ 
+ You are given an ELF file called =exe=.  Your goal is to write a
+ plugin that prints out all sections marked as read-only, such as
+ =.rodata= for elf, in hex.
+
+* Working with org mode notes
+
+orgmode syntax:
+
+#+BEGIN_EXAMPLE
+ #+NAME: foo
+     #+BEGIN_SRC language switches header arguments
+       body
+     #+END_SRC
+#+END_EXAMPLE
+
+The language identifier for shell scripts is ~sh~
+
+Examples are put in monospace font.  They can be inserted two ways:
+#+BEGIN_EXAMPLE
+foo
+#+END_EXAMPLE
+
+or single line as such with a colon:
+  : foo
+
+Easy templates:
+#+BEGIN_EXAMPLE
+s	#+BEGIN_SRC ... #+END_SRC 
+e	#+BEGIN_EXAMPLE ... #+END_EXAMPLE
+q	#+BEGIN_QUOTE ... #+END_QUOTE 
+v	#+BEGIN_VERSE ... #+END_VERSE 
+c	#+BEGIN_CENTER ... #+END_CENTER 
+l	#+BEGIN_LaTeX ... #+END_LaTeX 
+L	#+LaTeX: 
+h	#+BEGIN_HTML ... #+END_HTML 
+H	#+HTML: 
+a	#+BEGIN_ASCII ... #+END_ASCII 
+A	#+ASCII: 
+i	#+INDEX: line 
+I	#+INCLUDE: line 
+#+END_EXAMPLE
+
+Both in example and in src snippets, you can add a -n switch to the
+end of the BEGIN line, to get the lines of the example numbered. If
+you use a +n switch, the numbering from the previous numbered snippet
+will be continued in the current one. In literal examples, Org will
+interpret strings like (removed) as labels, and use them as targets
+for special hyperlinks like (removed) (i.e., the reference name enclosed
+in single parenthesis). In HTML, hovering the mouse over such a link
+will remote-highlight the corresponding code line, which is kind of
+cool.
+
+
+You can also add a -r switch which removes the labels from the source
+code121. With the -n switch, links to these references will be labeled
+by the line numbers from the code listing, otherwise links will use
+the labels with no parentheses. Here is an example:
+
+The :exports header argument can be used to specify export behavior:
+
+Header arguments:
+
+#+BEGIN_EXAMPLE
+:exports code
+The default in most languages. The body of the code block is exported, as described in Literal examples. 
+:exports results
+The code block will be evaluated and the results will be placed in the Org mode buffer for export, either updating previous results of the code block located anywhere in the buffer or, if no previous results exist, placing the results immediately after the code block. The body of the code block will not be exported. 
+#+END_EXAMPLE
+
+
+#+BEGIN_EXAMPLE
+     #+BEGIN_SRC emacs-lisp -n -r
+     (save-excursion                  (ref:sc)
+        (goto-char (point-min)))      (ref:jump)
+     #+END_SRC
+     In line [[(sc)]] we remember the current position.  [[(jump)][Line (jump)]]
+     jumps to point-min.
+
+#+END_EXAMPLE
+
+If the syntax for the label format conflicts with the language syntax,
+use a -l switch to change the format, for example ‘#+BEGIN_SRC pascal
+-n -r -l "((%s))"’. See also the variable org-coderef-label-format.
 
 
 
+
+
+
+
+
+Call up the info with C-h i.
+Then call g (Info-goto-node).
+Enter (org) at the prompt.
